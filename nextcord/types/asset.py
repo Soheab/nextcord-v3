@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, ClassVar, Literal
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Literal
 
 if TYPE_CHECKING:
     from nextcord.client.state import State
@@ -14,10 +14,6 @@ BASE_CDN: str = "https://cdn.discordapp.com"
 STATIC_FORMATS = {"jpeg", "jpg", "webp", "png"}
 ALL_FORMATS = STATIC_FORMATS | {"gif"}
 ALL_SIZES = {2, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096}
-
-
-def DEFAULT_FORMAT(animated: bool) -> Literal["png", "gif"]:
-    return "png" if not animated else "gif"
 
 
 class Asset:
@@ -37,22 +33,10 @@ class Asset:
 
         self._path: str = path
         self._hash: str = hash
-        self._format: str = format or DEFAULT_FORMAT(animated)
+        self._format: str = format or "png" if not animated else "gif"
         self._size: int = size or 1024
         self._animated: bool = animated
         self._supported_formats: set[str] = supported_formats or ALL_FORMATS
-
-    def __str__(self) -> str:
-        return f"{BASE_CDN}{self._path}.{self._format}?size={self._size}"
-
-    def __repr__(self):
-        return f"Asset(url={self.path}, format={self._format}, animated={self.is_animated})"
-
-    def __eq__(self, other):
-        return isinstance(other, Asset) and str(self) == str(other)
-
-    def __hash__(self):
-        return hash(str(self))
 
     @classmethod
     def _from_guild(
@@ -63,11 +47,11 @@ class Asset:
         *,
         guild_id: int,
         hash: str,
-        animated: bool = False,
+        can_be_animated: bool = False,
         supported_formats: set[str] = None,  # use MISSING ?
         **extras: dict[str, Any],
     ) -> Asset:
-        animated = False if not animated else hash.startswith("a_")
+        animated = False if not can_be_animated else hash.startswith("a_")
         type_to_path = {
             "avatar": f"/guilds/{guild_id}/users/{extras['member_id']}/avatars/{hash}",
             "banner": f"/banners/{guild_id}/{hash}",
@@ -92,11 +76,11 @@ class Asset:
         *,
         user_id: int,
         hash: str,
-        animated: bool = False,
+        can_be_animated: bool = False,
         supported_formats: set[str] = None,  # use MISSING ?
         **extras: dict[str, Any],
     ) -> Asset:
-        animated = False if not animated else hash.startswith("a_")
+        animated = False if not can_be_animated else hash.startswith("a_")
         type_to_path = {
             "avatar": f"/avatars/{user_id}/{hash}",
             "banner": f"/banners/{user_id}/{hash}",
@@ -153,6 +137,18 @@ class Asset:
             supported_formats=STATIC_FORMATS,
         )
 
+    def __str__(self) -> str:
+        return f"{BASE_CDN}{self._path}.{self._format}?size={self._size}"
+
+    def __repr__(self):
+        return f"Asset(url={self._path}, format={self._format}, animated={self.is_animated})"
+
+    def __eq__(self, other):
+        return isinstance(other, Asset) and str(self) == str(other)
+
+    def __hash__(self):
+        return hash(str(self))
+
     @property
     def hash(self) -> str:
         return self._hash
@@ -170,42 +166,26 @@ class Asset:
         return self._size
 
     @property
-    def path(self) -> str:
-        return self._path
+    def animated(self) -> bool:
+        return self._animated
 
     @property
-    def is_animated(self) -> bool:
-        return self._animated
+    def supported_formats(self) -> set[str]:
+        return self._supported_formats
 
     def as_format(self, format: AllFormats, /) -> Asset:
         if format not in self._supported_formats:
             raise ValueError(f"{format} is not a supported format for this asset.")
 
-        return Asset(
-            self._state,
-            path=self._path,
-            hash=self._hash,
-            format=format,
-            animated=self._animated,
-            size=self._size,
-            supported_formats=self._supported_formats,
-        )
+        return self.replace(format=format)
 
     def as_size(self, size: AllSizes, /) -> Asset:
-        return Asset(
-            self._state,
-            path=self._path,
-            hash=self._hash,
-            format=self._format,
-            size=size,
-            animated=self._animated,
-            supported_formats=self._supported_formats,
-        )
+        return self.replace(size=size)
 
-    def as_static_format(self, format: StaticFormats, /) -> Asset:
+    def as_static_format(self, static_format: StaticFormats, /) -> Asset:
         if self._animated:
             return self
-        return self.as_format(format)
+        return self.replace(static_format=static_format)
 
     # TODO: use MISSING ?
     def replace(
@@ -216,12 +196,9 @@ class Asset:
         size = None
 
         if format is not MISSING:
-            if self._animated:
-                if format not in STATIC_FORMATS:
-                    raise ValueError(f"format must be one of {STATIC_FORMATS}")
-            else:
-                if format not in ALL_FORMATS:
-                    raise ValueError(f"format must be one of {ALL_FORMATS}")
+            supported_formats = STATIC_FORMATS if self._animated else ALL_FORMATS
+            if format not in supported_formats:
+                raise ValueError(f"format must be one of {supported_formats}")
 
             format = format
 
