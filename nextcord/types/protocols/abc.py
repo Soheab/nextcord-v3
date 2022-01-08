@@ -6,16 +6,18 @@ from .enums import ChannelType
 if TYPE_CHECKING:
     from nextcord.client.state import State
 
+
 class GuildChannel:
     _state: State
 
     id: int
-    type: ChannelType
     name: str
+    type: ChannelType
 
     guild: Any
     position: int
-    overwrites: Any
+    category_id: Optional[int]
+    _overwrites: list[Any]
 
     if TYPE_CHECKING:
 
@@ -28,7 +30,7 @@ class GuildChannel:
     def __int__(self) -> int:
         return self.id
 
-    def _setattrs_from_data(self, guild: Any, data: dict[str, Any]) -> None:
+    def __setattrs(self, guild: Any, data: dict[str, Any]) -> None:
         raise NotImplementedError
 
     @property
@@ -43,25 +45,41 @@ class GuildChannel:
     def mention(self):
         return f"<#{self.id}>"
 
-    async def edit(self, *, name: str, reason: str = None) -> Any:
+    @property
+    def overwrites(self) -> Any:
+        ...
+
+    async def _edit(self, *, name: str, reason: str = None) -> Any:
         ...
 
     async def delete(self, *, reason: str = None) -> Any:
-        ...
-
-    async def fetch_message(self, message_id: int, /) -> Any:
         ...
 
     # TODO: obj = Member or Role
     async def permissions_for(self, obj: Any) -> Any:
         ...
 
+    async def set_permissions(self) -> Any:
+        ...
+
     # TODO: obj = Member or Role
-    async def overwrite_for(self, obj: Any) -> Any:
+    async def overwrites_for(self, obj: Any) -> Any:
         ...
 
     async def create_invite(self, *, reason: str = None) -> Any:
         ...
 
+    async def invites(self) -> Any:
+        ...
+
+    async def _clone(self) -> Any:
+        ...
+
     async def clone(self, *, reason: str = None) -> Any:
+        raise NotImplementedError
+
+    async def _move(self) -> Any:
+        ...
+
+    async def move(self, *, position: int, reason: str = None) -> Any:
         ...
