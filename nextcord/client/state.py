@@ -26,22 +26,25 @@ from ..type_sheet import TypeSheet
 if TYPE_CHECKING:
     from typing import Optional
 
+    from .protocols.client import Client
+
 
 class State:
     def __init__(
         self,
+        client: Client,
         type_sheet: TypeSheet,
         token: str,
         intents: int,
         shard_count: Optional[int],
     ):
+        self.client: Client = client
         self.type_sheet: TypeSheet = type_sheet
         self.loop: AbstractEventLoop = get_event_loop()
 
         self.token: str = token
         self.intents: int = intents
-        self.shard_count: Optional[int] = shard_count
 
         # Instances
         self.http = self.type_sheet.http_client(self)
-        self.gateway = self.type_sheet.gateway(self)
+        self.gateway = self.type_sheet.gateway(self, shard_count=shard_count)

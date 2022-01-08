@@ -23,19 +23,29 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from typing import Any, Optional
+    from typing import Optional
 
-    from nextcord.type_sheet import TypeSheet
+    from ...exceptions import NextcordException
+    from ...flags import Intents
+    from ...type_sheet import TypeSheet
 
 
-class Client(Protocol):
+class ClientProtocol(Protocol):
     def __init__(
-        self, *, type_sheet: Optional[TypeSheet] = None, intents: Optional[Any] = None
-    ):
+        self,
+        token: str,
+        intents: Intents,
+        *,
+        type_sheet: Optional[TypeSheet] = None,
+        shard_count: Optional[int] = None,
+    ) -> None:
         ...
 
-    async def connect(self, token: str) -> None:
+    async def connect(self) -> None:
         ...
 
-    def run(self, token: str) -> None:
+    def run(self) -> None:
+        ...
+
+    async def close(self, error: Optional[NextcordException] = None) -> None:
         ...

@@ -20,34 +20,47 @@
 # DEALINGS IN THE SOFTWARE.
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
+
+from nextcord.core.ratelimiter import TimesPer
 
 if TYPE_CHECKING:
-    from asyncio import Event
-    from typing import Any, Optional
+    from typing import Optional
 
-    from nextcord.type_sheet import TypeSheet
-
-    from ...http import HTTPClient
+    from ....client.state import State
+    from ....dispatcher import Dispatcher
+    from .shard import ShardProtocol
 
 
 class GatewayProtocol(Protocol):
-    def __init__(
-        self,
-        type_sheet: TypeSheet,
-        http: HTTPClient,
-        *,
-        status: Any = None,
-        presence: Any = None,
-        shard_count: Optional[int] = None,
-    ):
-        self.status: Any
-        self.presence: Any
+    def __init__(self, state: State, shard_count: Optional[int] = None):
+        self.state: State
         self.shard_count: Optional[int]
-        self.ready: Event
 
-    async def connect(self):
+        self.event_dispatcher: Dispatcher
+        self.raw_dispatcher: Dispatcher
+
+    async def connect(self) -> None:
         ...
 
-    async def send(self, data: dict, *, shard_id: int = 0):
+    async def send(self, data: dict, *, shard_id: int = 0) -> None:
+        ...
+
+    def should_reconnect(self, shard: ShardProtocol) -> bool:
+        ...
+
+    async def close(self) -> None:
+        ...
+
+    def get_identify_ratelimiter(self, shard_id: int) -> TimesPer:
+        ...
+
+    def _shard_dispatch(
+        self, event_name: str, shard: ShardProtocol, *args: Any
+    ) -> None:
+        ...
+
+    def _shard_raw_dispatch(
+        self, opcode: int, shard: ShardProtocol, *args: Any
+    ) -> None:
         ...

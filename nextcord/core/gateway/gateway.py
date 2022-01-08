@@ -25,6 +25,7 @@ from collections import defaultdict
 from logging import getLogger
 from typing import TYPE_CHECKING
 
+from nextcord.core.gateway.exceptions import NotEnoughShardsException
 from nextcord.dispatcher import Dispatcher
 
 from ..ratelimiter import TimesPer
@@ -34,44 +35,36 @@ from .shard import Shard
 if TYPE_CHECKING:
     from typing import Any, Optional
 
-    from nextcord.exceptions import NextcordException
-
     from ...client.state import State
+    from ...exceptions import NextcordException
+    from .protocols.shard import ShardProtocol
 
 logger = getLogger(__name__)
 
 
 class Gateway(GatewayProtocol):
-    def __init__(
-        self,
-        state: State,
-    ):
+    def __init__(self, state: State, shard_count: Optional[int] = None):
         self.state: State = state
         self._error_future: Future = Future()
         self._error: NextcordException
 
         # Ratelimiting
         self._identify_ratelimits = defaultdict(lambda: TimesPer(1, 5))
-        self.max_concurrency: Optional[int] = None
+        self._max_concurrency: Optional[int] = None
 
         # Shard count
-        self.shard_count: Optional[int] = self.state.shard_count
+        self.shard_count: Optional[int] = shard_count
         self._shard_count_locked = self.shard_count is not None
 
         # Shard sets
-        self.shards: list[Any] = []
+        self.shards: list[ShardProtocol] = []
         # When we get disconnected for too low shard count, we start creating a second set of inactive shards.
         self._pending_shard_set: list[Any] = []
-        self.recreating_shards: bool = False
+        self._recreating_shards: bool = False
 
         # Dispatchers
-        self.shard_error_dispatcher: Dispatcher = Dispatcher()
-
-        # Handles
-        self.shard_error_dispatcher.add_listener(
-            "critical_error", self.handle_critical_error
-        )
-        self.shard_error_dispatcher.add_listener("rescale", None)
+        self.event_dispatcher: Dispatcher = Dispatcher()
+        self.raw_dispatcher: Dispatcher = Dispatcher()
 
     async def connect(self):
         r = await self.state.http.get_gateway_bot()
@@ -81,25 +74,21 @@ class Gateway(GatewayProtocol):
             self.shard_count = gateway_info["shards"]
 
         session_start_limit = gateway_info["session_start_limit"]
-        self.max_concurrency = session_start_limit["max_concurrency"]
+        self._max_concurrency = session_start_limit["max_concurrency"]
 
         for shard_id in range(self.shard_count):
-            shard = Shard(
+            shard = self.state.type_sheet.shard(
                 self.state,
                 shard_id,
             )
             self.state.loop.create_task(shard.connect())
             self.shards.append(shard)
 
-        await self._error_future
-        # A error has happened, throw it!
-        raise self._error from None
+    def get_identify_ratelimiter(self, shard_id) -> TimesPer:
+        return self._identify_ratelimits[shard_id % self._max_concurrency]
 
-    def get_identify_ratelimiter(self, shard_id):
-        return self._identify_ratelimits[shard_id % self.max_concurrency]
-
-    def should_reconnect(self, shard: Shard):
-        if not self.recreating_shards:
+    def should_reconnect(self, shard: Shard) -> bool:
+        if not self._recreating_shards:
             return True
         if shard in self.shards:
             return False
@@ -110,14 +99,13 @@ class Gateway(GatewayProtocol):
         for shard in self.shards + self._pending_shard_set:
             await shard.close()
 
-    # Handles
-    async def handle_critical_error(self, error: NextcordException):
-        self._error = error
-        self._error_future.set_result(None)
-
-    async def handle_rescale(self):
-        if self.recreating_shards:
+    # Dispatcher handles
+    async def handle_rescale(self) -> None:
+        if self._recreating_shards:
             # Possibly error here as this should never be dispatched?
             return
-        self.recreating_shards = True
+        if self._shard_count_locked:
+            await self.state.client.close(NotEnoughShardsException())
+            return
+        self._recreating_shards = True
         # TODO: Rescale.
