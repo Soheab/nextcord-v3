@@ -1,12 +1,12 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, ClassVar, Coroutine, Literal, Union
-from io import BufferedIOBase, BytesIO
+from typing import TYPE_CHECKING, ClassVar, Literal, Union
+from io import BufferedIOBase
 
 
 __all__: tuple[str, ...] = ("Asset",)
 
 if TYPE_CHECKING:
-    from nextcord.client.state import State
+    from nextcord.core.http import HTTPClient
 
     from os import PathLike
 
@@ -15,19 +15,37 @@ if TYPE_CHECKING:
     ValidSizes = Literal[2, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096]
 
 
-VALID_STATIC_FORMATS = {"jpeg", "jpg", "webp", "png"}
-VALID_FORMATS = VALID_STATIC_FORMATS | {"gif"}
-VALID_SIZES = {2, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096}
+VALID_STATIC_FORMATS: set[str] = {"jpeg", "jpg", "webp", "png"}
+VALID_FORMATS: set[str] = VALID_STATIC_FORMATS | {"gif"}
+VALID_SIZES: set[int] = {2, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096}
 
 
-class Asset(AssetBase):
+class AssetMixin:
+    _http: HTTPClient
+    url: str
+
+    async def read(self, url: str = None) -> bytes:
+        return await self._http.get_cdn(url)  # type: ignore
+
+    async def save(self, fp: Union[str, bytes, PathLike, BufferedIOBase]) -> int:
+        data: bytes = await self.read()
+        if isinstance(fp, BufferedIOBase):
+            written = fp.write(data)
+            fp.seek(0)
+            return written
+
+        with open(fp, "wb") as f:
+            return f.write(data)
+
+
+class Asset(AssetMixin):
     DISCORD_CDN: ClassVar[str] = "https://cdn.discordapp.com"
 
-    __slots__: tuple[str, ...] = ("_path", "_hash", "_format", "_size", "_animated", "_url")
+    __slots__: tuple[str, ...] = ("_path", "_hash", "_format", "_size", "_animated")
 
     def __init__(
         self,
-        state: State,
+        http: HTTPClient,
         /,
         *,
         path: str,
@@ -35,8 +53,8 @@ class Asset(AssetBase):
         format: str = None,  # use MISSING ?
         size: int = None,  # use MISSING ?
         animated: bool = False,
-    ):
-        self._state = state
+    ) -> None:
+        self._http: HTTPClient = http
 
         self._path: str = path
         self._hash: str = hash
@@ -47,25 +65,10 @@ class Asset(AssetBase):
         self.url = f"{self.DISCORD_CDN}{self._path}.{self._format}{'?size={self._size}' if self._size else ''}"
 
     @classmethod
-    async def read(cls, state: State, url: str = None, *, from_asset: Asset = None) -> Union[bytes, BytesIO]:
-        return await _state.http.get_cdn(self.url)
-
-    async def save(self, fp: Union[str, bytes, PathLike, BufferedIOBase], *, seek_begin: bool = True) -> int:
-        data: bytes = await self.read()
-        if isinstance(fp, BufferedIOBase):
-            written = fp.write(data)
-            if seek_begin:
-                fp.seek(0)
-            return written
-        else:
-            with open(fp, "wb") as f:
-                return f.write(data)
-
-    @classmethod
     def _from_guild(
         cls,
-        state: State,
         type: Literal["avatar", "banner", "channel_banner", "discovery_splash", "icon", "splash"],
+        http: HTTPClient,
         /,
         *,
         hash: str,
@@ -96,17 +99,17 @@ class Asset(AssetBase):
             "splash": f"/splashes/{guild_id}/{hash}",
         }
         return cls(
-            state,
+            http,
             path=type_to_path[type],
             hash=hash,
             animated=animated,
         )
 
     @classmethod
-    async def _from_user(
+    def _from_user(
         cls,
         type: Literal["avatar", "banner", "default_avatar", "guild_banner"],
-        state: State,
+        http: HTTPClient,
         /,
         *,
         hash: str,
@@ -134,7 +137,7 @@ class Asset(AssetBase):
             "guild_banner": f"/guilds/{guild_id}/users/{user_id}/banners/{hash}",
         }
         return cls(
-            state,
+            http,
             path=type_to_path[type],
             hash=hash,
             animated=animated,
@@ -144,7 +147,7 @@ class Asset(AssetBase):
     def _from_icon(
         cls,
         type: Literal["app", "channel", "team"],
-        state: State,
+        http: HTTPClient,
         /,
         *,
         object_id: int,
@@ -163,7 +166,7 @@ class Asset(AssetBase):
             Asset for the icon.
         """
         return cls(
-            state,
+            http,
             path=f"/{type}-icons/{object_id}/{hash}",
             hash=hash,
             format="png",
@@ -171,10 +174,10 @@ class Asset(AssetBase):
         )
 
     @classmethod
-    async def _from_app_assets(
+    def _from_app_assets(
         cls,
-        state: State,
         type: Literal["cover_image", "sticker_banner"],
+        http: HTTPClient,
         /,
         *,
         hash: str,
@@ -184,8 +187,6 @@ class Asset(AssetBase):
 
         Parameters
         ----------
-        state: :class:`State`
-            The client state.
         type: :class:`str`
             Type of the asset. This must be either ``cover_image`` or ``sticker_banner``.
 
@@ -204,7 +205,7 @@ class Asset(AssetBase):
 
         object_id = object_id or 710982414301790216  # some special id for sticker_banner?
         return cls(
-            state,
+            http,
             path=f"/app-assets/{object_id}/store/{hash}",
             hash=hash,
             format="png",
@@ -233,41 +234,10 @@ class Asset(AssetBase):
         """:class:`str`: The format of the asset."""
         return self._format
 
-    @format.setter
-    def format(self, new_format: ValidFormats) -> None:
-        """Change the format of this asset.
-
-        Parameters
-        ----------
-        new_format: str
-            The new format of the asset.
-
-        """
-        self._format = new_format
-
     @property
     def size(self) -> int:
         """:class:`int`: The size of the asset."""
         return self._size
-
-    @size.setter
-    def size(self, new_size: ValidSizes) -> None:
-        """Set the size of this asset.
-
-        Parameters
-        ----------
-        new_size: int
-            The new size of the asset.
-
-        Raises
-        ------
-        ValueError
-            The new size is not a valid size.
-        """
-        if new_size not in VALID_SIZES:
-            raise ValueError(f"size must be one of {VALID_SIZES}")
-
-        self._size = new_size
 
     @property
     def animated(self) -> bool:
@@ -293,13 +263,12 @@ class Asset(AssetBase):
         ValueError
             The format is not supported on this asset.
         """
-        if format not in self._supported_formats:
-            raise ValueError(f"{format} is not a supported format for this asset.")
 
         return self.replace(format=format)
 
     def size_to(self, size: ValidSizes, /) -> Asset:
         """:class:`Asset` Returns a new asset with the size set to the given size."""
+
         return self.replace(size=size)
 
     def static_format_to(self, static_format: ValidStaticFormats, /) -> Asset:
@@ -351,11 +320,10 @@ class Asset(AssetBase):
             size = size
 
         return Asset(
-            self._state,
+            self._http,
             path=self._path,
             hash=self._hash,
             format=format,
             size=size,
             animated=self._animated,
-            supported_formats=self._supported_formats,
         )

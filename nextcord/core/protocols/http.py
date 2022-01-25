@@ -81,6 +81,9 @@ class HTTPClientProtocol(Protocol):
     async def request(self, route: RouteProtocol, **kwargs) -> ClientResponse:
         ...
 
+    async def get_cdn(self, url: str) -> bytes:
+        ...
+
     async def ws_connect(self, url) -> ClientWebSocketResponse:
         ...
 
