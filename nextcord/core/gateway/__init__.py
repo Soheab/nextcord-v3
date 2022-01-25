@@ -18,34 +18,8 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 # DEALINGS IN THE SOFTWARE.
-from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from .gateway import Gateway
+from .shard import Shard
 
-if TYPE_CHECKING:
-    from typing import Optional
-
-    from ...exceptions import NextcordException
-    from ...flags import Intents
-    from ...type_sheet import TypeSheet
-
-
-class ClientProtocol(Protocol):
-    def __init__(
-        self,
-        token: str,
-        intents: Intents,
-        *,
-        type_sheet: Optional[TypeSheet] = None,
-        shard_count: Optional[int] = None,
-    ) -> None:
-        ...
-
-    async def connect(self) -> None:
-        ...
-
-    def run(self) -> None:
-        ...
-
-    async def close(self, error: Optional[NextcordException] = None) -> None:
-        ...
+__all__ = ("Gateway", "Shard")

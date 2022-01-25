@@ -28,13 +28,27 @@ if TYPE_CHECKING:
 
     T = TypeVar("T")
 
-    from .core.gateway.gateway import GatewayProtocol
+    from .core.gateway.protocols.gateway import GatewayProtocol
     from .core.gateway.protocols.shard import ShardProtocol
     from .core.protocols.http import BucketProtocol, HTTPClientProtocol
 
 
 @dataclass
 class TypeSheet:
+    """A place for the library to store which component types we use when creating things.
+
+    Parameters
+    ----------
+    http_client:
+        The HTTP Client
+    http_bucket:
+        The bucket used when creating new HTTP buckets. Used for HTTP ratelimiting
+    gateway:
+        The shard manager
+    shard:
+        The connections to discord spawned by :class:`GatewayProtocol`
+    """
+
     http_client: Type[HTTPClientProtocol]
     http_bucket: Type[BucketProtocol]
     gateway: Type[GatewayProtocol]
@@ -42,13 +56,19 @@ class TypeSheet:
 
     @classmethod
     def default(cls: Type[T]) -> T:
+        """Get the default configuration.
+
+        Returns
+        -------
+        TypeSheet
+        """
         # TODO: Possibly make this cleaner?
         from .core.gateway.gateway import Gateway
         from .core.gateway.shard import Shard
         from .core.http import Bucket as DefaultBucket
         from .core.http import HTTPClient as DefaultHTTPClient
 
-        return cls(
+        return cls(  # type: ignore
             http_client=DefaultHTTPClient,
             http_bucket=DefaultBucket,
             gateway=Gateway,

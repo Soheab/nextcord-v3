@@ -19,10 +19,8 @@
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 # DEALINGS IN THE SOFTWARE.
 
-__version__ = "3.0.0a"
 
-from .client.client import Client
-from .flags import Intents
-from .type_sheet import TypeSheet
+from .gateway import GatewayProtocol
+from .shard import ShardProtocol
 
-__all__ = ("Client", "TypeSheet", "Intents")
+__all__ = ("GatewayProtocol", "ShardProtocol")

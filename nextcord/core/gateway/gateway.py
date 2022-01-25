@@ -20,17 +20,14 @@
 # DEALINGS IN THE SOFTWARE.
 from __future__ import annotations
 
-from asyncio.futures import Future
 from collections import defaultdict
 from logging import getLogger
 from typing import TYPE_CHECKING
 
-from nextcord.core.gateway.exceptions import NotEnoughShardsException
-from nextcord.dispatcher import Dispatcher
-
+from ...dispatcher import Dispatcher
 from ..ratelimiter import TimesPer
+from .exceptions import NotEnoughShardsException
 from .protocols.gateway import GatewayProtocol
-from .shard import Shard
 
 if TYPE_CHECKING:
     from typing import Any, Optional
@@ -43,21 +40,32 @@ logger = getLogger(__name__)
 
 
 class Gateway(GatewayProtocol):
-    def __init__(self, state: State, shard_count: Optional[int] = None):
+    """A fast and simple :class:`GatewayProtocol` implementation
+
+    Parameters
+    ----------
+    state: :class:`State`
+        The current state of the bot
+    shard_count: :class:`Optional[int]`
+        The current shard count. If this is not None it is expected for it to error instead of changing shard count
+
+    """
+
+    def __init__(self, state: State, shard_count: Optional[int] = None) -> None:
         self.state: State = state
-        self._error_future: Future = Future()
-        self._error: NextcordException
 
         # Ratelimiting
-        self._identify_ratelimits = defaultdict(lambda: TimesPer(1, 5))
+        self._identify_ratelimits: defaultdict[int, TimesPer] = defaultdict(lambda: TimesPer(1, 5))
         self._max_concurrency: Optional[int] = None
 
         # Shard count
         self.shard_count: Optional[int] = shard_count
-        self._shard_count_locked = self.shard_count is not None
+        """The current shard count"""
+        self._shard_count_locked: bool = self.shard_count is not None
 
         # Shard sets
         self.shards: list[ShardProtocol] = []
+        """The currently active shards"""
         # When we get disconnected for too low shard count, we start creating a second set of inactive shards.
         self._pending_shard_set: list[Any] = []
         self._recreating_shards: bool = False
@@ -66,7 +74,8 @@ class Gateway(GatewayProtocol):
         self.event_dispatcher: Dispatcher = Dispatcher()
         self.raw_dispatcher: Dispatcher = Dispatcher()
 
-    async def connect(self):
+    async def connect(self) -> None:
+        """Connect to the gateway"""
         r = await self.state.http.get_gateway_bot()
         gateway_info = await r.json()
 
@@ -84,10 +93,29 @@ class Gateway(GatewayProtocol):
             self.state.loop.create_task(shard.connect())
             self.shards.append(shard)
 
-    def get_identify_ratelimiter(self, shard_id) -> TimesPer:
+    def get_identify_ratelimiter(self, shard_id: int) -> TimesPer:
+        """Get the ratelimiter the shard should use while connecting
+
+        Parameters
+        ----------
+        shard_id: :class:`int`
+            The shard id of the connecting shard.
+
+        """
+
+        if self._max_concurrency is None:
+            raise NextcordException("Cannot get identify ratelimit before max_concurrency is filled")
         return self._identify_ratelimits[shard_id % self._max_concurrency]
 
-    def should_reconnect(self, shard: Shard) -> bool:
+    def should_reconnect(self, shard: ShardProtocol) -> bool:
+        """Called on :class:`ShardProtocol` disconnect to check if it should auto reconnect.
+        This is used for scaling up shards to stop the old ones from connecting and wasting identifies.
+
+        Parameters
+        ----------
+        shard: :class:`ShardProtocol`
+            The shard asking if it should reconnect
+        """
         if not self._recreating_shards:
             return True
         if shard in self.shards:
@@ -95,7 +123,10 @@ class Gateway(GatewayProtocol):
 
         return True
 
-    async def close(self):
+    async def close(self) -> None:
+        """Close all connections and cleanup.
+        This should only be called once
+        """
         for shard in self.shards + self._pending_shard_set:
             await shard.close()
 
